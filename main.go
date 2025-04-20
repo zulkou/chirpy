@@ -18,12 +18,14 @@ type apiConfig struct {
 	fileserverHits atomic.Int32
     db *database.Queries
     platform string
+    jwtSecret string
 }
 
 func main() {
     godotenv.Load()
 
     roles := os.Getenv("PLATFORM")
+    jwtString := os.Getenv("JWT_SECRET")
 
     dbURL := os.Getenv("DB_URL")
     db, err := sql.Open("postgres", dbURL)
@@ -38,6 +40,7 @@ func main() {
     apiCfg := &apiConfig{
         db: dbQueries,
         platform: roles,
+        jwtSecret: jwtString,
     }
 
     server := &http.Server{
@@ -49,8 +52,8 @@ func main() {
 
     mux.HandleFunc("GET /api/healthz", apiCfg.healthzHandler)
 
-    mux.HandleFunc("POST /api/users", apiCfg.createUserHandler)
     mux.HandleFunc("POST /api/login", apiCfg.loginUserHandler)
+    mux.HandleFunc("POST /api/users", apiCfg.createUserHandler)
 
     mux.HandleFunc("POST /api/chirps", apiCfg.createChirpHandler)
     mux.HandleFunc("GET /api/chirps", apiCfg.getChirpsHandler)

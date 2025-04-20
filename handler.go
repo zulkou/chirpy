@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/google/uuid"
@@ -115,6 +116,17 @@ func (cfg *apiConfig) createUserHandler(w http.ResponseWriter, r *http.Request) 
 }
 
 func (cfg *apiConfig) createChirpHandler(w http.ResponseWriter, r *http.Request) {
+    token, err := auth.GetBearerToken(r.Header)
+    if err != nil {
+        respondWithError(w, http.StatusUnauthorized, "Failed to get token")
+        return
+    }
+
+    userID, err := auth.ValidateJWT(token, cfg.jwtSecret)
+    if err != nil {
+        respondWithError(w, http.StatusUnauthorized, "Token missmatch on validation")
+    }
+
     type userChirp struct {
         Body string `json:"body"`
         UserID uuid.UUID `json:"user_id"`
@@ -122,11 +134,13 @@ func (cfg *apiConfig) createChirpHandler(w http.ResponseWriter, r *http.Request)
 
     decoder := json.NewDecoder(r.Body)
     reqData := userChirp{}
-    err := decoder.Decode(&reqData)
+    err = decoder.Decode(&reqData)
     if err != nil {
         respondWithError(w, http.StatusInternalServerError, "Failed to decode user input")
         return
     }
+
+    reqData.UserID = userID
 
     if len(reqData.Body) > 140 {
         respondWithError(w, http.StatusBadRequest, "Chirp is too long")
@@ -227,6 +241,7 @@ func (cfg *apiConfig) loginUserHandler(w http.ResponseWriter, r *http.Request) {
     type loginData struct {
         Email string `json:"email"`
         Password string `json:"password"`
+        ExpiresInSeconds time.Duration `json:"expires_in_seconds"`
     }
 
     decoder := json.NewDecoder(r.Body)
@@ -249,11 +264,25 @@ func (cfg *apiConfig) loginUserHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    var expiresIn time.Duration
+    if reqData.ExpiresInSeconds != 0 {
+        expiresIn = reqData.ExpiresInSeconds * time.Second
+    } else {
+        expiresIn = 3600 * time.Second
+    }
+
+    jwtToken, err := auth.MakeJWT(user.ID, cfg.jwtSecret, expiresIn)
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Failed to create auth token")
+        return
+    }
+
     loggedUser := User{
         ID: user.ID,
         CreatedAt: user.CreatedAt,
         UpdatedAt: user.UpdatedAt,
         Email: user.Email,
+        Token: jwtToken,
     }
 
     respondWithJSON(w, http.StatusOK, loggedUser)
