@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"github.com/google/uuid"
+	"github.com/zulkou/chirpy/internal/auth"
 	"github.com/zulkou/chirpy/internal/database"
 )
 
@@ -75,6 +76,7 @@ func (cfg *apiConfig) healthzHandler(w http.ResponseWriter, r *http.Request) {
 func (cfg *apiConfig) createUserHandler(w http.ResponseWriter, r *http.Request) {
     type reqStruct struct {
         Email string `json:"email"`
+        Password string `json:"password"`
     }
 
     decoder := json.NewDecoder(r.Body)
@@ -85,7 +87,16 @@ func (cfg *apiConfig) createUserHandler(w http.ResponseWriter, r *http.Request) 
         return
     }
 
-    resp, err := cfg.db.CreateUser(context.Background(), reqData.Email)
+    hashedPassword, err := auth.HashPassword(reqData.Password)
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Failed to hash password")
+        return
+    }
+
+    resp, err := cfg.db.CreateUser(context.Background(), database.CreateUserParams{
+        Email: reqData.Email,
+        HashedPassword: hashedPassword,
+    })
     if err != nil {
         respondWithError(w, http.StatusInternalServerError, "Failed to create user")
         return
@@ -210,4 +221,40 @@ func (cfg *apiConfig) getChirpByIDHandler(w http.ResponseWriter, r *http.Request
 
     respondWithJSON(w, http.StatusOK, chirp)
     return
+}
+
+func (cfg *apiConfig) loginUserHandler(w http.ResponseWriter, r *http.Request) {
+    type loginData struct {
+        Email string `json:"email"`
+        Password string `json:"password"`
+    }
+
+    decoder := json.NewDecoder(r.Body)
+    reqData := loginData{}
+    err := decoder.Decode(&reqData)
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Failed to process input")
+        return
+    }
+
+    user, err := cfg.db.GetUserByEmail(context.Background(), reqData.Email)
+    if err != nil {
+        respondWithError(w, http.StatusUnauthorized, "Incorrect email or password")
+        return
+    }
+
+    err = auth.CheckPasswordHash(user.HashedPassword, reqData.Password)
+    if err != nil {
+        respondWithError(w, http.StatusUnauthorized, "Incorrect email or password")
+        return
+    }
+
+    loggedUser := User{
+        ID: user.ID,
+        CreatedAt: user.CreatedAt,
+        UpdatedAt: user.UpdatedAt,
+        Email: user.Email,
+    }
+
+    respondWithJSON(w, http.StatusOK, loggedUser)
 }
