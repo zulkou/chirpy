@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -71,7 +72,7 @@ func (cfg *apiConfig) healthzHandler(w http.ResponseWriter, r *http.Request) {
     if err != nil {
         respondWithError(w, http.StatusInternalServerError, "Failed to write into http response")
         return
-    }
+}
 }
 
 func (cfg *apiConfig) createUserHandler(w http.ResponseWriter, r *http.Request) {
@@ -125,6 +126,7 @@ func (cfg *apiConfig) createChirpHandler(w http.ResponseWriter, r *http.Request)
     userID, err := auth.ValidateJWT(token, cfg.jwtSecret)
     if err != nil {
         respondWithError(w, http.StatusUnauthorized, "Token missmatch on validation")
+        return
     }
 
     type userChirp struct {
@@ -277,13 +279,78 @@ func (cfg *apiConfig) loginUserHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    randToken, err := auth.MakeRefreshToken()
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Failed to create refresh token")
+        return
+    }
+
+    refreshToken, err := cfg.db.CreateRefreshToken(context.Background(), database.CreateRefreshTokenParams{
+        Token: randToken,
+        UserID: user.ID,
+        ExpiresAt: time.Now().AddDate(0, 0, 60),
+        RevokedAt: sql.NullTime{},
+    })
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Failed to create refresh token")
+        return
+    }
+
     loggedUser := User{
         ID: user.ID,
         CreatedAt: user.CreatedAt,
         UpdatedAt: user.UpdatedAt,
         Email: user.Email,
         Token: jwtToken,
+        RefreshToken: refreshToken.Token,
     }
 
     respondWithJSON(w, http.StatusOK, loggedUser)
+    return
+}
+
+func (cfg *apiConfig) refreshTokenHandler(w http.ResponseWriter, r *http.Request) {
+    token, err := auth.GetBearerToken(r.Header)
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Auth header not found")
+        return
+    }
+
+    refreshToken, err := cfg.db.GetRefreshTokenByToken(context.Background(), token)
+    if err != nil || refreshToken.RevokedAt.Valid || time.Now().After(refreshToken.ExpiresAt) {
+        respondWithError(w, http.StatusUnauthorized, "Refresh token does not exist, is revoked, or is expired")
+        return
+    }
+
+    jwtToken, err := auth.MakeJWT(refreshToken.UserID, cfg.jwtSecret, 1 * time.Hour)
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Failed to create new token")
+        return
+    }
+
+    newToken := struct {
+        Token string `json:"token"`
+    }{
+        Token: jwtToken,
+    }
+
+    respondWithJSON(w, http.StatusOK, newToken)
+    return
+}
+
+func (cfg *apiConfig) revokeTokenHandler(w http.ResponseWriter, r *http.Request) {
+    token, err := auth.GetBearerToken(r.Header)
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Auth header not found")
+        return
+    }
+
+    err = cfg.db.UpdateRevokeToken(context.Background(), token)
+    if err != nil {
+        respondWithError(w, http.StatusUnauthorized, "Token did not exists")
+        return
+    }
+
+    respondWithJSON(w, http.StatusNoContent, nil)
+    return
 }
