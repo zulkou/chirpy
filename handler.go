@@ -400,4 +400,44 @@ func (cfg *apiConfig) updateUserHandler(w http.ResponseWriter, r *http.Request) 
     }
 
     respondWithJSON(w, http.StatusOK, newUser)
-} 
+    return
+}
+
+func (cfg *apiConfig) deleteChirpByIDHandler (w http.ResponseWriter, r *http.Request) {
+    stringID := r.PathValue("chirpID")
+    chirpID, err := uuid.Parse(stringID)
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Failed to parse chirp id")
+    }
+    chirp, err := cfg.db.GetChirpByID(context.Background(), chirpID)
+    if err != nil {
+        respondWithError(w, http.StatusNotFound, "Failed to fetch chirp")
+        return
+    }
+
+    token, err := auth.GetBearerToken(r.Header)
+    if err != nil {
+        respondWithError(w, http.StatusUnauthorized, "Failed to get token")
+        return
+    }
+
+    userID, err := auth.ValidateJWT(token, cfg.jwtSecret)
+    if err != nil {
+        respondWithError(w, http.StatusUnauthorized, "Token missmatch")
+        return
+    }
+
+    if userID != chirp.UserID {
+        respondWithError(w, http.StatusForbidden, "User unauthorized")
+        return
+    }
+
+    err = cfg.db.DeleteChirpByID(context.Background(), chirp.ID)
+    if err != nil {
+        respondWithError(w, http.StatusNotFound, "Chirp not found")
+        return
+    }
+
+    respondWithJSON(w, http.StatusNoContent, nil)
+    return
+}
