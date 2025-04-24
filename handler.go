@@ -446,6 +446,17 @@ func (cfg *apiConfig) deleteChirpByIDHandler (w http.ResponseWriter, r *http.Req
 }
 
 func (cfg *apiConfig) upgradeUserHandler(w http.ResponseWriter, r *http.Request) {
+    apiKey, err := auth.GetAPIKey(r.Header)
+    if err != nil {
+        respondWithError(w, http.StatusUnauthorized, "Unauthorized")
+        return
+    }
+
+    if apiKey != cfg.polkaKey {
+        respondWithError(w, http.StatusUnauthorized, "Unauthorized")
+        return
+    }
+
     type webReq struct {
         Event string `json:"event"`
         Data struct {
@@ -455,7 +466,7 @@ func (cfg *apiConfig) upgradeUserHandler(w http.ResponseWriter, r *http.Request)
 
     decoder := json.NewDecoder(r.Body)
     reqData := webReq{}
-    err := decoder.Decode(&reqData)
+    err = decoder.Decode(&reqData)
     if err != nil {
         respondWithError(w, http.StatusInternalServerError, "Failed to decode request")
         return

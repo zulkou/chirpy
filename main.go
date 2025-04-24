@@ -19,6 +19,7 @@ type apiConfig struct {
     db *database.Queries
     platform string
     jwtSecret string
+    polkaKey string
 }
 
 func main() {
@@ -26,6 +27,7 @@ func main() {
 
     roles := os.Getenv("PLATFORM")
     jwtString := os.Getenv("JWT_SECRET")
+    polkaKey := os.Getenv("POLKA_KEY")
 
     dbURL := os.Getenv("DB_URL")
     db, err := sql.Open("postgres", dbURL)
@@ -41,6 +43,7 @@ func main() {
         db: dbQueries,
         platform: roles,
         jwtSecret: jwtString,
+        polkaKey: polkaKey,
     }
 
     server := &http.Server{
