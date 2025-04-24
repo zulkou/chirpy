@@ -354,3 +354,50 @@ func (cfg *apiConfig) revokeTokenHandler(w http.ResponseWriter, r *http.Request)
     respondWithJSON(w, http.StatusNoContent, nil)
     return
 }
+
+func (cfg *apiConfig) updateUserHandler(w http.ResponseWriter, r *http.Request) {
+    token, err := auth.GetBearerToken(r.Header)
+    if err != nil {
+        respondWithError(w, http.StatusUnauthorized, "Failed to get token")
+        return
+    }
+
+    userID, err := auth.ValidateJWT(token, cfg.jwtSecret)
+    if err != nil {
+        respondWithError(w, http.StatusUnauthorized, "Token missmatch on validation")
+        return
+    }
+
+    type newData struct {
+        Email string `json:"email"`
+        Password string `json:"password"`
+    }
+
+    decoder := json.NewDecoder(r.Body)
+    reqData := newData{}
+    err = decoder.Decode(&reqData)
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Failed to decode input")
+        return
+    }
+
+    hashedPassword, err := auth.HashPassword(reqData.Password)
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Failed to hash password")
+    }
+
+    newUserData, err := cfg.db.UpdateUserByID(context.Background(), database.UpdateUserByIDParams{
+        ID: userID,
+        Email: reqData.Email,
+        HashedPassword: hashedPassword,
+    })
+
+    newUser := User{
+        ID: newUserData.ID,
+        CreatedAt: newUserData.CreatedAt,
+        UpdatedAt: newUserData.UpdatedAt,
+        Email: newUserData.Email,
+    }
+
+    respondWithJSON(w, http.StatusOK, newUser)
+} 
