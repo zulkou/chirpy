@@ -109,6 +109,7 @@ func (cfg *apiConfig) createUserHandler(w http.ResponseWriter, r *http.Request) 
         CreatedAt: resp.CreatedAt,
         UpdatedAt: resp.UpdatedAt,
         Email: resp.Email,
+        IsChirpyRed: resp.IsChirpyRed,
     }
 
     respondWithJSON(w, http.StatusCreated, createdUser)
@@ -301,6 +302,7 @@ func (cfg *apiConfig) loginUserHandler(w http.ResponseWriter, r *http.Request) {
         CreatedAt: user.CreatedAt,
         UpdatedAt: user.UpdatedAt,
         Email: user.Email,
+        IsChirpyRed: user.IsChirpyRed,
         Token: jwtToken,
         RefreshToken: refreshToken.Token,
     }
@@ -397,6 +399,7 @@ func (cfg *apiConfig) updateUserHandler(w http.ResponseWriter, r *http.Request) 
         CreatedAt: newUserData.CreatedAt,
         UpdatedAt: newUserData.UpdatedAt,
         Email: newUserData.Email,
+        IsChirpyRed: newUserData.IsChirpyRed,
     }
 
     respondWithJSON(w, http.StatusOK, newUser)
@@ -435,6 +438,43 @@ func (cfg *apiConfig) deleteChirpByIDHandler (w http.ResponseWriter, r *http.Req
     err = cfg.db.DeleteChirpByID(context.Background(), chirp.ID)
     if err != nil {
         respondWithError(w, http.StatusNotFound, "Chirp not found")
+        return
+    }
+
+    respondWithJSON(w, http.StatusNoContent, nil)
+    return
+}
+
+func (cfg *apiConfig) upgradeUserHandler(w http.ResponseWriter, r *http.Request) {
+    type webReq struct {
+        Event string `json:"event"`
+        Data struct {
+            UserID string `json:"user_id"`
+        } `json:"data"`
+    }
+
+    decoder := json.NewDecoder(r.Body)
+    reqData := webReq{}
+    err := decoder.Decode(&reqData)
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Failed to decode request")
+        return
+    }
+
+    userID, err := uuid.Parse(reqData.Data.UserID)
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Failed to parse given id")
+        return
+    }
+
+    if reqData.Event != "user.upgraded" {
+        respondWithJSON(w, http.StatusNoContent, nil)
+        return
+    }
+
+    err = cfg.db.UpgradeUserRedChirpy(context.Background(), userID)
+    if err != nil {
+        respondWithError(w, http.StatusNotFound, "User not found")
         return
     }
 
