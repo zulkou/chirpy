@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+    "sort"
 
 	"github.com/google/uuid"
 	"github.com/zulkou/chirpy/internal/auth"
@@ -193,6 +194,9 @@ func (cfg *apiConfig) createChirpHandler(w http.ResponseWriter, r *http.Request)
 }
 
 func (cfg *apiConfig) getChirpsHandler(w http.ResponseWriter, r *http.Request) {
+    authorID := r.URL.Query().Get("author_id")
+    sortQuery := r.URL.Query().Get("sort")
+
     chirps, err := cfg.db.GetChirps(context.Background())
     if err != nil {
         respondWithError(w, http.StatusInternalServerError, "Failed to fetch chirps")
@@ -208,6 +212,24 @@ func (cfg *apiConfig) getChirpsHandler(w http.ResponseWriter, r *http.Request) {
             Body: chirp.Body,
             UserID: chirp.UserID,
         })
+    }
+
+    if sortQuery == "desc" {
+        sort.Slice(chirpsSlice, func(i, j int) bool {
+            return chirpsSlice[j].CreatedAt.Before(chirpsSlice[i].CreatedAt)
+        })
+    }
+
+    if authorID != "" {
+        var chirpsByAuthor []Chirp
+        for _, chirp := range chirpsSlice {
+            if chirp.UserID.String() == authorID {
+                chirpsByAuthor = append(chirpsByAuthor, chirp)
+            }
+        }
+
+        respondWithJSON(w, http.StatusOK, chirpsByAuthor)
+        return
     }
 
     respondWithJSON(w, http.StatusOK, chirpsSlice)
